@@ -1,65 +1,97 @@
-import Image from "next/image";
+import { Suspense } from 'react'
+import Link from 'next/link'
+import { getTools } from '@/lib/supabase/queries/tools'
+import type { ToolWithAnalysis } from '@/lib/supabase/types'
+import { CategoryFilter } from '@/components/category-filter'
+import { ToolGrid } from '@/components/tool-grid'
+import { EmptyState } from '@/components/empty-state'
 
-export default function Home() {
+interface HomePageProps {
+  searchParams: Promise<{ category?: string }>
+}
+
+const categories = ['All', 'AI Tools', 'Developer Tools', 'Backend', 'Frontend', 'Database', 'DevOps', 'Productivity', 'Security', 'Cloud']
+
+// Filter pill → analysis category mapping (in-memory, supports multi-category pills)
+const pillToAnalysisCategories: Record<string, string[] | undefined> = {
+  'All': undefined,
+  'AI Tools': ['AI Coding'],
+  'Developer Tools': ['Email', 'ORM'],
+  'Backend': ['Backend'],
+  'Frontend': ['Deployment'],
+  'Database': ['Database'],
+  'DevOps': ['DevOps'],
+  'Productivity': ['Monitoring'],
+  'Security': ['Authentication'],
+  'Cloud': ['Cloud'],
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const params = await searchParams
+  const category = params.category || 'All'
+
+  // Fetch all analyzed tools, then filter in-memory for multi-category pill support
+  let tools: ToolWithAnalysis[] = []
+  try {
+    tools = await getTools({
+      analyzedOnly: true,
+      limit: 50,
+      curationStatus: ['curated', 'reviewed'],
+    }) as unknown as ToolWithAnalysis[]
+
+    console.log('🟢 [HomePage] Supabase getTools returned:', tools.length, 'tools')
+    if (tools.length > 0) {
+      console.log('📊 [HomePage] First tool:', JSON.stringify(tools[0], null, 2))
+    } else {
+      console.log('⚠️ [HomePage] Supabase returned 0 tools — EmptyState will render')
+    }
+  } catch (err) {
+    console.error('🔴 [HomePage] Supabase getTools ERROR:', err)
+  }
+
+  // Apply category filter in-memory (supports multi-category filter pills)
+  if (category !== 'All' && tools.length > 0) {
+    const allowedCategories = pillToAnalysisCategories[category]
+    if (allowedCategories) {
+      tools = tools.filter(t => allowedCategories.includes(t.tool_analyses?.category ?? ''))
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex flex-1 flex-col">
+      {/* Category Filter — directly below header */}
+      <div className="border-b border-[#1f2937] bg-[#111827] py-3">
+        <div className="mx-auto max-w-[1280px] px-4 md:px-6 lg:px-8">
+          <Suspense fallback={<div className="h-9" />}>
+            <CategoryFilter categories={categories} activeCategory={category} />
+          </Suspense>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </div>
+
+      {/* Main Content */}
+      <section className="flex-1 py-6">
+        <div className="mx-auto max-w-[1280px] px-4 md:px-6">
+          {/* Section Header */}
+          <div className="mb-5 flex items-center justify-between">
+            <h1 className="text-xl font-semibold text-[#f9fafb]">
+              {category === 'All' ? 'Top Developer Tools' : category}
+            </h1>
+            <Link
+              href="/tools"
+              className="text-sm font-medium text-[#6366f1] hover:text-[#818cf8]"
+            >
+              View All Tools &rarr;
+            </Link>
+          </div>
+
+          {/* Tool Grid or Empty State */}
+          {tools.length > 0 ? (
+            <ToolGrid tools={tools} />
+          ) : (
+            <EmptyState />
+          )}
         </div>
-      </main>
+      </section>
     </div>
-  );
+  )
 }

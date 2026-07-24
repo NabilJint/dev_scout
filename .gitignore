@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+
+$FWc$dhYxWU9k?G
+
+Implement pgVector support and the related articles feature. Enable pgVector, add the embedding column, update the AI analysis pipeline to also generate and save embeddings, and then add the related articles section to the news detail page using the super base skills.
+.env.local

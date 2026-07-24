@@ -1,0 +1,32 @@
+[
+  {
+    "event_name": "category_filtered",
+    "event_description": "User clicks a category filter pill on the home page.",
+    "file": "components/category-filter.tsx"
+  },
+  {
+    "event_name": "tool_card_clicked",
+    "event_description": "User clicks on a tool card to view its detail page.",
+    "file": "components/tool-card.tsx"
+  },
+  {
+    "event_name": "tool_website_visited",
+    "event_description": "User clicks 'Visit Official Website' from the tool detail quick actions.",
+    "file": "components/tool-details/quick-actions.tsx"
+  },
+  {
+    "event_name": "newsletter_subscribed",
+    "event_description": "User submits the newsletter subscription form on the tool detail page.",
+    "file": "components/tool-details/newsletter-section.tsx"
+  },
+  {
+    "event_name": "scrape_pipeline_completed",
+    "event_description": "Server-side: a manual scrape pipeline run finished (success or failure).",
+    "file": "app/api/scrape/route.ts"
+  },
+  {
+    "event_name": "analysis_pipeline_completed",
+    "event_description": "Server-side: an AI analysis pipeline run finished (success or failure).",
+    "file": "app/api/analyze/route.ts"
+  }
+]

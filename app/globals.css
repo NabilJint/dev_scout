@@ -1,26 +1,347 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import '@clerk/ui/themes/shadcn.css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================
+   DEVSCOUT AI DESIGN SYSTEM
+   Design System v1.0 — May 31, 2026
+   ============================================ */
+
+/* --------------------------------------------
+   BRAND TOKENS
+   -------------------------------------------- */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Primary Colors */
+  --color-primary: #6366F1;
+  --color-primary-hover: #5558E6;
+  --color-primary-active: #4F46E5;
+  --color-primary-muted: rgba(99, 102, 241, 0.16);
+
+  --color-secondary: #64748B;
+  --color-secondary-hover: #5A6A80;
+  --color-secondary-active: #475569;
+
+  --color-surface: #111827;
+  --color-surface-elevated: #1F2937;
+  --color-background: #080D12;
+
+  /* Semantic Colors */
+  --color-positive: #10B981;
+  --color-positive-muted: rgba(16, 185, 129, 0.16);
+  --color-warning: #F59E0B;
+  --color-warning-muted: rgba(245, 158, 11, 0.16);
+  --color-negative: #EF4444;
+  --color-negative-muted: rgba(239, 68, 68, 0.16);
+  --color-info: #3B82F6;
+  --color-info-muted: rgba(59, 130, 246, 0.16);
+
+  /* Neutral Colors */
+  --color-n-900: #080D12;
+  --color-n-800: #111827;
+  --color-n-700: #1F2937;
+  --color-n-600: #374151;
+  --color-n-500: #6B7280;
+  --color-n-400: #9CA3AF;
+  --color-n-300: #D1D5DB;
+  --color-n-200: #E5E7EB;
+  --color-n-100: #F3F4F6;
+  --color-n-50: #F9FAFB;
+
+  /* Text Colors */
+  --color-text-primary: #F9FAFB;
+  --color-text-secondary: #9CA3AF;
+  --color-text-muted: #6B7280;
+  --color-text-inverse: #080D12;
+
+  /* Border Colors */
+  --color-border-default: #374151;
+  --color-border-subtle: #1F2937;
+  --color-border-strong: #6B7280;
+  --color-border-focus: #6366F1;
+
+  /* Typography Scale */
+  --font-family-primary: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'Geist Mono', 'SF Mono', 'Fira Code', monospace;
+
+  --font-size-h1: 2rem;        /* 32px */
+  --font-size-h2: 1.5rem;      /* 24px */
+  --font-size-h3: 1.25rem;     /* 20px */
+  --font-size-h4: 1rem;        /* 16px */
+  --font-size-body-lg: 1rem;   /* 16px */
+  --font-size-body-md: 0.875rem; /* 14px */
+  --font-size-body-sm: 0.8125rem; /* 13px */
+  --font-size-caption: 0.6875rem;  /* 11px */
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.2;
+  --line-height-snug: 1.3;
+  --line-height-normal: 1.4;
+  --line-height-relaxed: 1.6;
+
+  /* Spacing Scale (4px base unit) */
+  --spacing-1: 0.25rem;   /* 4px */
+  --spacing-2: 0.5rem;    /* 8px */
+  --spacing-3: 0.75rem;   /* 12px */
+  --spacing-4: 1rem;      /* 16px */
+  --spacing-5: 1.5rem;    /* 24px */
+  --spacing-6: 2rem;      /* 32px */
+  --spacing-7: 2.5rem;    /* 40px */
+  --spacing-8: 3rem;      /* 48px */
+  --spacing-10: 5rem;     /* 80px */
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0px 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0px 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0px 12px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0px 24px 48px rgba(0, 0, 0, 0.16);
+
+  /* Grid System */
+  --grid-container: 1280px;
+  --grid-columns: 12;
+  --grid-gutter: 1.5rem;   /* 24px */
+  --grid-margin: 1.5rem;   /* 24px */
+
+  /* Z-Index Scale */
+  --z-base: 0;
+  --z-dropdown: 50;
+  --z-sticky: 100;
+  --z-overlay: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 350ms ease;
+
+  /* shadcn/ui CSS Variables — mapped to dark theme */
+  --background: #080D12;
+  --foreground: #F9FAFB;
+  --card: #1F2937;
+  --card-foreground: #F9FAFB;
+  --popover: #1F2937;
+  --popover-foreground: #F9FAFB;
+  --primary: #6366F1;
+  --primary-foreground: #F9FAFB;
+  --secondary: #64748B;
+  --secondary-foreground: #F9FAFB;
+  --muted: #1F2937;
+  --muted-foreground: #9CA3AF;
+  --accent: #1F2937;
+  --accent-foreground: #F9FAFB;
+  --destructive: #EF4444;
+  --border: #374151;
+  --input: #374151;
+  --ring: #6366F1;
+  --chart-1: #6366F1;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #EF4444;
+  --chart-5: #3B82F6;
+  --radius: 0.625rem;
 }
 
+/* --------------------------------------------
+   TAILWIND v4 THEME EXTENSION
+   Maps CSS variables to Tailwind utilities
+   -------------------------------------------- */
+
+/* The @theme inline block tells Tailwind v4 to treat these custom properties
+   as theme tokens, making them available as utility classes (e.g. bg-primary,
+   text-text-primary). The inline keyword ensures the values are resolved at
+   build time rather than runtime, keeping the output CSS small. */
 @theme inline {
-  --color-background: var(--background);
+  /* Colors */
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-primary-active: var(--color-primary-active);
+  --color-primary-muted: var(--color-primary-muted);
+
+  --color-secondary: var(--color-secondary);
+  --color-secondary-hover: var(--color-secondary-hover);
+  --color-secondary-active: var(--color-secondary-active);
+
+  --color-surface: var(--color-surface);
+  --color-surface-elevated: var(--color-surface-elevated);
+  --color-background: var(--color-background);
+
+  --color-positive: var(--color-positive);
+  --color-positive-muted: var(--color-positive-muted);
+  --color-warning: var(--color-warning);
+  --color-warning-muted: var(--color-warning-muted);
+  --color-negative: var(--color-negative);
+  --color-negative-muted: var(--color-negative-muted);
+  --color-info: var(--color-info);
+  --color-info-muted: var(--color-info-muted);
+
+  --color-n-900: var(--color-n-900);
+  --color-n-800: var(--color-n-800);
+  --color-n-700: var(--color-n-700);
+  --color-n-600: var(--color-n-600);
+  --color-n-500: var(--color-n-500);
+  --color-n-400: var(--color-n-400);
+  --color-n-300: var(--color-n-300);
+  --color-n-200: var(--color-n-200);
+  --color-n-100: var(--color-n-100);
+  --color-n-50: var(--color-n-50);
+
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-inverse: var(--color-text-inverse);
+
+  --color-border-default: var(--color-border-default);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-border-strong: var(--color-border-strong);
+  --color-border-focus: var(--color-border-focus);
+
+  /* Font Family */
+  --font-family-primary: var(--font-family-primary);
+  --font-family-mono: var(--font-family-mono);
+
+  /* Font Sizes */
+  --font-size-h1: var(--font-size-h1);
+  --font-size-h2: var(--font-size-h2);
+  --font-size-h3: var(--font-size-h3);
+  --font-size-h4: var(--font-size-h4);
+  --font-size-body-lg: var(--font-size-body-lg);
+  --font-size-body-md: var(--font-size-body-md);
+  --font-size-body-sm: var(--font-size-body-sm);
+  --font-size-caption: var(--font-size-caption);
+
+  /* Font Weights */
+  --font-weight-regular: var(--font-weight-regular);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --font-weight-bold: var(--font-weight-bold);
+
+  /* Line Heights */
+  --line-height-tight: var(--line-height-tight);
+  --line-height-snug: var(--line-height-snug);
+  --line-height-normal: var(--line-height-normal);
+  --line-height-relaxed: var(--line-height-relaxed);
+
+  /* Spacing */
+  --spacing-1: var(--spacing-1);
+  --spacing-2: var(--spacing-2);
+  --spacing-3: var(--spacing-3);
+  --spacing-4: var(--spacing-4);
+  --spacing-5: var(--spacing-5);
+  --spacing-6: var(--spacing-6);
+  --spacing-7: var(--spacing-7);
+  --spacing-8: var(--spacing-8);
+  --spacing-10: var(--spacing-10);
+
+  /* Border Radius */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-full: var(--radius-full);
+
+  /* Shadows */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+
+  /* shadcn/ui theme tokens */
+  --font-heading: var(--font-family-primary);
+  --font-sans: var(--font-family-primary);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* --------------------------------------------
+   BASE STYLES
+   -------------------------------------------- */
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-n-800);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-n-600);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-n-500);
+}
+
+/* Hide scrollbar for horizontal scrollable areas */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }
