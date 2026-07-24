@@ -8,3 +8,5 @@ export * from './analyses';
 export * from './logs';
 export * from './schedules';
 export * from './runs';
+export * from './pipeline-runs';
+export * from './research-documents';

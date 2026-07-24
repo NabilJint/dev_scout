@@ -33,15 +33,22 @@ If the text lacks sufficient evidence for a particular field, mark it conservati
 
 Return ONLY valid JSON matching the schema above. No markdown, no explanation, no backticks.`;
 
-export function buildAnalysisPrompt(toolName: string, rawText: string): string {
-  return `Analyze the following developer tool based on its scraped web page text.
-
-Tool Name: ${toolName}
-
-Scraped Page Text:
----
-${rawText}
----
-
-Return a JSON object with the analysis fields as specified in the system prompt.`;
+export function buildAnalysisPrompt(options: {
+  toolName: string;
+  rawText?: string | null;
+  researchDoc?: string | null;
+}): string {
+  const { toolName, rawText, researchDoc } = options;
+  let prompt = `Analyze the following developer tool based on its scraped web page text.\n\n`;
+  prompt += `Tool Name: ${toolName}\n\n`;
+  if (researchDoc) {
+    prompt += `## Research Document (combined from homepage, docs, pricing, and GitHub README)\n\n`;
+    prompt += `${researchDoc}\n\n`;
+  }
+  if (rawText) {
+    prompt += `## Raw Scraped Page Text (original source listing)\n\n`;
+    prompt += `${rawText}\n\n`;
+  }
+  prompt += `Return a JSON object with the analysis fields as specified in the system prompt.`;
+  return prompt;
 }

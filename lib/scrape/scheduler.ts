@@ -1,4 +1,5 @@
 import 'server-only';
+import crypto from 'crypto';
 
 // lib/scrape/scheduler.ts
 // Scheduler processing orchestrator.
@@ -12,7 +13,7 @@ import {
   insertSchedule,
   getScheduleBySourceId,
 } from '@/lib/supabase/queries/schedules';
-import { logInfo } from '@/lib/supabase/queries/logs';
+import { logInfo, logStageStart, logStageEnd } from '@/lib/supabase/queries/logs';
 import { processHomepageContent } from './pipeline';
 import {
   createSchedule,
@@ -65,7 +66,9 @@ export interface SyncSchedulesSummary {
  * Creates one schedule per active source. Deactivates orphaned schedules.
  */
 export async function syncSchedules(): Promise<SyncSchedulesSummary> {
+  const pipelineRunId = crypto.randomUUID();
   console.log('\n🔄 [Scheduler] Syncing schedules with Oxylabs...');
+  const syncStart = await logStageStart('NORMALIZE', { operation: 'sync-schedules' }, pipelineRunId);
 
   const errors: string[] = [];
   let schedulesCreated = 0;
@@ -77,6 +80,7 @@ export async function syncSchedules(): Promise<SyncSchedulesSummary> {
 
   if (sources.length === 0) {
     console.log('  ⚠️  [Scheduler] No active sources found');
+    await logStageEnd(syncStart, { status: 'completed', metadata: { sourcesFound: 0 }, pipelineRunId });
     return {
       status: 'completed',
       sourcesChecked: 0,
@@ -160,10 +164,12 @@ export async function syncSchedules(): Promise<SyncSchedulesSummary> {
   console.log(`\n📊 [Scheduler] Sync summary: ${JSON.stringify(summary, null, 2)}`);
 
   try {
-    await logInfo('Scheduler sync completed', { summary } as unknown as Json);
+    await logInfo('Scheduler sync completed', { summary, pipelineRunId } as unknown as Json, pipelineRunId);
   } catch {
     // non-critical
   }
+
+  await logStageEnd(syncStart, { status: status === 'failed' ? 'failed' : 'completed', metadata: { schedulesCreated, orphansDeactivated, errors: errors.length }, pipelineRunId });
 
   return summary;
 }
@@ -228,6 +234,7 @@ export interface ProcessResultsSummary {
  * Fetches completed job HTML from Oxylabs, then runs the shared pipeline.
  */
 export async function processScheduledResults(): Promise<ProcessResultsSummary> {
+  const pipelineRunId = crypto.randomUUID();
   console.log('\n📡 [Scheduler] Processing scheduled results...');
 
   const errors: string[] = [];
@@ -283,9 +290,11 @@ export async function processScheduledResults(): Promise<ProcessResultsSummary> 
 
       // Fetch results for each done job
       for (const job of doneJobs) {
+        const jobFetchStart = await logStageStart('FETCH', { scheduleId: dbSchedule.oxylabs_schedule_id, jobId: job.id, phase: 'scheduler-job-result' }, pipelineRunId);
         try {
           const result = await getJobResults(job.id);
           if (result && result.content) {
+            await logStageEnd(jobFetchStart, { status: 'completed', metadata: { statusCode: result.statusCode }, pipelineRunId });
             jobsFetched++;
             console.log(`    ✅ [Scheduler] Fetched result for job ${job.id} (${result.statusCode})`);
 
@@ -295,9 +304,11 @@ export async function processScheduledResults(): Promise<ProcessResultsSummary> 
               html: result.content,
             });
           } else {
+            await logStageEnd(jobFetchStart, { status: 'failed', error: 'Empty result', pipelineRunId });
             console.warn(`    ⚠️  [Scheduler] Empty result for job ${job.id}`);
           }
         } catch (err) {
+          await logStageEnd(jobFetchStart, { status: 'failed', error: String(err), pipelineRunId });
           const msg = `Failed to fetch job ${job.id}: ${err instanceof Error ? err.message : String(err)}`;
           console.error(`    ❌ [Scheduler] ${msg}`);
           errors.push(msg);
@@ -342,7 +353,7 @@ export async function processScheduledResults(): Promise<ProcessResultsSummary> 
 
   let pipelineSummary: PipelineSummary | null = null;
   try {
-    pipelineSummary = await processHomepageContent(resolvedSourcesWithHtml);
+    pipelineSummary = await processHomepageContent(resolvedSourcesWithHtml, { pipelineRunId });
     console.log(`  ✅ [Scheduler] Pipeline completed: ${pipelineSummary.toolsInserted} tools inserted`);
   } catch (err) {
     const msg = `Pipeline error: ${err instanceof Error ? err.message : String(err)}`;
@@ -369,7 +380,7 @@ export async function processScheduledResults(): Promise<ProcessResultsSummary> 
   console.log(`\n📊 [Scheduler] Process summary: ${JSON.stringify(summary, null, 2)}`);
 
   try {
-    await logInfo('Scheduler process completed', { summary } as unknown as Json);
+    await logInfo('Scheduler process completed', { summary, pipelineRunId } as unknown as Json, pipelineRunId);
   } catch {
     // non-critical
   }

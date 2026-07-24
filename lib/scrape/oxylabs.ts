@@ -4,6 +4,8 @@ import 'server-only';
 // Server-only Oxylabs Web Scraper API client
 // Uses the Realtime endpoint for all scraping calls
 
+const OXYLABS_TIMEOUT = 45_000; // 45s timeout per request
+
 /**
  * Scrape a URL through the Oxylabs Web Scraper API.
  *
@@ -34,6 +36,9 @@ export async function scrapeUrl(
         body.render = 'html';
       }
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), OXYLABS_TIMEOUT);
+
       const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
         method: 'POST',
         headers: {
@@ -41,7 +46,9 @@ export async function scrapeUrl(
           Authorization: authHeader,
         },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (response.status === 401) {
         return { content: '', statusCode: 401, error: 'Oxylabs authentication failed (401)' };

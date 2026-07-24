@@ -101,6 +101,7 @@ export async function insertSource(params: InsertSourceParams): Promise<ToolSour
       logo_url: params.logo_url ?? null,
       active: params.active ?? true,
       parser_strategy: params.parser_strategy ?? null,
+      provider_priority: params.provider_priority ?? null,
     })
     .select()
     .single()
@@ -123,6 +124,7 @@ export async function updateSource(params: UpdateSourceParams): Promise<ToolSour
   if (params.logo_url !== undefined) updates.logo_url = params.logo_url;
   if (params.active !== undefined) updates.active = params.active;
   if (params.parser_strategy !== undefined) updates.parser_strategy = params.parser_strategy;
+  if (params.provider_priority !== undefined) updates.provider_priority = params.provider_priority;
 
   const { data, error } = await supabase
     .from('tool_sources')

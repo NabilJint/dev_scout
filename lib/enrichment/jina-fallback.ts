@@ -158,5 +158,6 @@ function parseJinaResponse(text: string, originalUrl: string): EnrichedContent {
     ogImage,
     rawText: bodyText,
     source: 'jina-reader',
+    metadata: null,
   };
 }

@@ -236,30 +236,49 @@ export async function getRelatedTools(
 export async function insertTool(params: InsertToolParams): Promise<Tool> {
   const supabase = await createServerClient();
 
-  const { data, error } = await supabase
-    .from('tools')
-    .insert({
-      source_id: params.source_id,
-      original_url: params.original_url,
-      canonical_url: params.canonical_url,
-      name: params.name,
-      brand_text: params.brand_text ?? null,
-      image_url: params.image_url,
-      website_url: params.website_url ?? null,
-      curation_status: params.curation_status ?? 'auto-suggested',
-      last_updated: params.last_updated,
-      raw_text: params.raw_text ?? null,
-    })
-    .select()
-    .single()
-    .overrideTypes<Tool, { merge: false }>();
+  const insertData: Record<string, unknown> = {
+    source_id: params.source_id,
+    original_url: params.original_url,
+    canonical_url: params.canonical_url,
+    name: params.name,
+    brand_text: params.brand_text ?? null,
+    image_url: params.image_url,
+    website_url: params.website_url ?? null,
+    curation_status: params.curation_status ?? 'auto-suggested',
+    last_updated: params.last_updated,
+    raw_text: params.raw_text ?? null,
+  };
 
-  if (error) {
-    console.error('Error inserting tool:', error);
-    throw new Error(`Failed to insert tool: ${error.message}`);
+  // Retry without content_hash if column doesn't exist
+  for (const useHash of [true, false]) {
+    try {
+      if (useHash && params.content_hash) {
+        insertData.content_hash = params.content_hash;
+      } else {
+        delete insertData.content_hash;
+      }
+
+      const { data, error } = await supabase
+        .from('tools')
+        .insert(insertData)
+        .select()
+        .single()
+        .overrideTypes<Tool, { merge: false }>();
+
+      if (error) throw error;
+      return data as Tool;
+    } catch (err: unknown) {
+      const msg = (err && typeof err === 'object') ? JSON.stringify(err) : String(err);
+      if (useHash && msg.includes('content_hash')) {
+        // Fall through to retry without content_hash
+        continue;
+      }
+      console.error('Error inserting tool:', err);
+      throw new Error(`Failed to insert tool: ${msg}`);
+    }
   }
 
-  return data as Tool;
+  throw new Error('Failed to insert tool: both attempts failed');
 }
 
 export async function insertTools(tools: InsertToolParams[]): Promise<Tool[]> {
@@ -267,9 +286,8 @@ export async function insertTools(tools: InsertToolParams[]): Promise<Tool[]> {
 
   const supabase = await createServerClient();
 
-  const { data, error } = await supabase
-    .from('tools')
-    .insert(tools.map(t => ({
+  const insertData = tools.map(t => {
+    const row: Record<string, unknown> = {
       source_id: t.source_id,
       original_url: t.original_url,
       canonical_url: t.canonical_url,
@@ -280,7 +298,14 @@ export async function insertTools(tools: InsertToolParams[]): Promise<Tool[]> {
       curation_status: t.curation_status ?? 'auto-suggested',
       last_updated: t.last_updated,
       raw_text: t.raw_text ?? null,
-    })))
+    };
+    try { row.content_hash = t.content_hash ?? null; } catch {}
+    return row;
+  });
+
+  const { data, error } = await supabase
+    .from('tools')
+    .insert(insertData)
     .select()
     .overrideTypes<Tool[], { merge: false }>();
 
@@ -357,4 +382,44 @@ export async function checkToolsExistByOriginalUrls(urls: string[]): Promise<Set
   }
 
   return existingUrls;
+}
+
+/**
+ * Check which content hashes already exist in the tools table.
+ * Returns a Set of hashes that are already stored.
+ * Only checks non-null hashes.
+ */
+export async function checkHashesExist(contentHashes: string[]): Promise<Set<string>> {
+  // Filter out empty/null hashes
+  const validHashes = contentHashes.filter(h => h && h.length > 0);
+  if (validHashes.length === 0) return new Set();
+
+  const supabase = await createServerReadOnlyClient();
+
+  // Query in chunks of 15 to avoid PostgREST URL length limits
+  const chunkSize = 15;
+  const existingHashes = new Set<string>();
+
+  for (let i = 0; i < validHashes.length; i += chunkSize) {
+    const chunk = validHashes.slice(i, i + chunkSize);
+
+    try {
+      const { data, error } = await supabase
+        .from('tools')
+        .select('content_hash')
+        .in('content_hash', chunk);
+
+      if (error) throw error;
+
+      data?.forEach(row => {
+        if (row.content_hash) existingHashes.add(row.content_hash);
+      });
+    } catch {
+      // content_hash column may not exist yet — skip dedup check
+      console.log('  ℹ️  [Pipeline] content_hash column not available — skipping hash dedup check');
+      return new Set();
+    }
+  }
+
+  return existingHashes;
 }

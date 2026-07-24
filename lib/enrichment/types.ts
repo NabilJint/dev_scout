@@ -23,6 +23,45 @@ export interface EnrichedContent {
 
   /** How the content was obtained */
   source: 'direct-fetch' | 'jina-reader' | 'failed';
+
+  /** Structured metadata extracted from the page's HTML. */
+  metadata: PageMetadata | null;
+}
+
+/**
+ * Structured metadata extracted from a tool's HTML page.
+ * All fields are best-effort — null if not found.
+ */
+export interface PageMetadata {
+  /** OpenGraph tags */
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogImage: string | null;
+  ogUrl: string | null;
+  ogType: string | null;
+  ogSiteName: string | null;
+
+  /** Twitter Card tags */
+  twitterCard: string | null;
+  twitterSite: string | null;
+  twitterCreator: string | null;
+
+  /** Standard meta tags */
+  metaDescription: string | null;
+  metaKeywords: string | null;
+  canonicalUrl: string | null;
+
+  /** JSON-LD fields */
+  jsonLdType: string | null;
+  jsonLdName: string | null;
+  jsonLdDescription: string | null;
+  jsonLdLogo: string | null;
+  jsonLdUrl: string | null;
+  jsonLdApplicationCategory: string | null;
+  jsonLdOperatingSystem: string | null;
+
+  /** Raw JSON-LD blocks (unparsed, for debugging) */
+  rawJsonLd: string[] | null;
 }
 
 /**
@@ -31,6 +70,21 @@ export interface EnrichedContent {
 export interface EnrichedLogoResult {
   logoUrl: string | null;
   source: 'simpleicons' | 'og-image' | 'favicon' | 'none';
+}
+
+/**
+ * Result of resolving a tool's canonical website URL.
+ * Tracks the resolution method and confidence.
+ */
+export interface WebsiteResolution {
+  /** The resolved official website URL, or null if not found. */
+  officialWebsite: string | null;
+  /** The detected GitHub repository URL, or null. */
+  githubUrl: string | null;
+  /** Confidence score 0-1. Higher means more reliable source. */
+  confidence: number;
+  /** Which method produced the result. */
+  method: 'parser-extracted' | 'homepage-link' | 'github-homepage' | 'github-readme' | 'package-metadata' | 'none';
 }
 
 /**
@@ -98,7 +152,7 @@ export interface WebsiteFetchResult {
  */
 export interface LogoResult {
   url: string | null;
-  source: 'simpleicons' | 'registry' | 'favicon' | 'none';
+  source: 'og-image' | 'jsonld-logo' | 'header-svg' | 'simpleicons' | 'registry' | 'favicon' | 'none';
 }
 
 /**
@@ -123,4 +177,36 @@ export interface EnrichmentSummary {
   logosResolved: number;
   totalDuration: string;
   details: EnrichmentResult[];
+}
+
+/**
+ * Result of resolving a tool's GitHub repository data.
+ */
+export interface GitHubData {
+  /** Full GitHub repository URL (e.g., "https://github.com/vercel/next.js") */
+  repository: string | null;
+  /** Repository owner (user or org name) */
+  owner: string | null;
+  /** Repository name */
+  name: string | null;
+  /** Star count */
+  stars: number | null;
+  /** Fork count */
+  forks: number | null;
+  /** Primary programming language */
+  language: string | null;
+  /** Repository topics/tags */
+  topics: string[];
+  /** License type (e.g., "MIT", "Apache-2.0") */
+  license: string | null;
+  /** Latest release tag name or null if no releases */
+  lastRelease: string | null;
+  /** Latest commit date (ISO string) */
+  lastCommit: string | null;
+  /** How the repo was found */
+  method: 'url-extraction' | 'website-check' | 'jsonld-check' | 'readme-check' | 'github-search' | 'none';
+  /** Confidence score 0-1 */
+  confidence: number;
+  /** Error message if resolution failed */
+  error?: string;
 }

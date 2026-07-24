@@ -1,12 +1,16 @@
 import 'server-only';
+import crypto from 'crypto';
 
 import { analyzeTool, generateEmbedding } from './analyze-tool';
+import { buildResearchDoc } from './research-doc';
 import { getPendingAnalysisTools, getToolsWithoutEmbeddings } from '@/lib/supabase/queries/tools';
 import { upsertAnalysis, getAnalysisByToolId, updateAnalysis } from '@/lib/supabase/queries/analyses';
 import { updateToolAnalyzedAt } from '@/lib/supabase/queries/tools';
 import { computeComplexityScore } from './schema';
-import { logInfo } from '@/lib/supabase/queries/logs';
+import { logInfo, logStageStart, logStageEnd } from '@/lib/supabase/queries/logs';
+import { createPipelineRun, completePipelineRun, failPipelineRun } from '@/lib/supabase/queries/pipeline-runs';
 import type { InsertAnalysisParams } from '@/lib/supabase/types';
+import type { StageLogEntry } from '@/lib/scrape/types';
 
 export interface AnalysisSummary {
   status: 'completed' | 'partial' | 'failed';
@@ -21,6 +25,7 @@ export interface AnalysisSummary {
     status: 'analyzed' | 'skipped' | 'failed';
     error?: string;
   }>;
+  stages?: StageLogEntry[];
 }
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -65,8 +70,25 @@ function getBatchSize(): number {
 export async function runAnalysisPipeline(options: {
   limit?: number;
   toolIds?: string[];
+  pipelineRunId?: string;
+  trigger?: 'manual' | 'cron' | 'scheduler' | 'analysis';
 } = {}): Promise<AnalysisSummary> {
+  const pipelineRunId = options.pipelineRunId ?? crypto.randomUUID();
+  const trigger = options.trigger ?? 'analysis';
   const startTime = performance.now();
+
+  // Create pipeline run tracking entry
+  try {
+    await createPipelineRun({
+      run_id: pipelineRunId,
+      trigger,
+      status: 'started',
+    });
+    console.log(`📊 [Analysis] Pipeline run created: ${pipelineRunId} (trigger: ${trigger})`);
+  } catch (err) {
+    console.warn(`  ⚠️  [Analysis] Failed to create pipeline run entry: ${err}`);
+    // Non-fatal — analysis still runs
+  }
   const batchSize = getBatchSize();
 
   // Always run embedding backfill first, regardless of pending tools
@@ -106,6 +128,7 @@ export async function runAnalysisPipeline(options: {
   let skipped = 0;
   let failed = 0;
   const details: AnalysisSummary['details'] = [];
+  const stages: StageLogEntry[] = [];
 
   for (let batchNum = 0; batchNum < numBatches; batchNum++) {
     const startIdx = batchNum * batchSize;
@@ -122,9 +145,36 @@ export async function runAnalysisPipeline(options: {
         continue;
       }
       console.log(`  🔍 [Analysis] Analyzing: ${tool.name}...`);
-      const result = await analyzeTool(tool.id, tool.name, tool.raw_text);
+
+      // -- RESEARCH DOC stage (enriches analysis with website, docs, pricing, and GitHub README) --
+      let researchDoc: string | null = null;
+      if (tool.website_url) {
+        researchDoc = await buildResearchDoc({
+          toolId: tool.id,
+          toolName: tool.name,
+          websiteUrl: tool.website_url,
+        });
+        if (researchDoc) {
+          console.log(`  ✅ [ResearchDoc] Research document ready for "${tool.name}"`);
+        }
+      }
+
+      // -- AI_ANALYSIS stage --
+      const analysisStageStart = await logStageStart('AI_ANALYSIS', { toolId: tool.id, toolName: tool.name }, pipelineRunId);
+      const result = await analyzeTool(tool.id, tool.name, tool.raw_text, researchDoc);
 
       if (result.success && result.analysis) {
+        const analysisEnd = performance.now();
+        await logStageEnd(analysisStageStart, { status: 'completed', metadata: { rating: result.analysis.toolRatingLabel, adoption: result.analysis.adoptionLabel }, pipelineRunId });
+        stages.push({
+          ...analysisStageStart.entry,
+          status: 'completed',
+          endTime: analysisEnd,
+          durationMs: Math.round(analysisEnd - analysisStageStart.entry.startTime),
+        });
+
+        // -- SAVE stage --
+        const saveStageStart = await logStageStart('SAVE', { toolId: tool.id, toolName: tool.name }, pipelineRunId);
         try {
           // Generate embedding
           let embedding: number[] | undefined;
@@ -168,19 +218,47 @@ export async function runAnalysisPipeline(options: {
           await upsertAnalysis(analysisParams);
           await updateToolAnalyzedAt({ id: tool.id, analyzed_at: new Date().toISOString() });
 
+          const saveEnd = performance.now();
+          await logStageEnd(saveStageStart, { status: 'completed', pipelineRunId });
+          stages.push({
+            ...saveStageStart.entry,
+            status: 'completed',
+            endTime: saveEnd,
+            durationMs: Math.round(saveEnd - saveStageStart.entry.startTime),
+          });
+
           analyzed++;
           details.push({ toolId: tool.id, toolName: tool.name, status: 'analyzed' });
           console.log(`  ✅ [Analysis] Analyzed: ${tool.name} (adoption: ${result.analysis.adoptionLabel}, rating: ${result.analysis.toolRatingLabel})`);
         } catch (dbError) {
-          failed++;
+          const saveEnd = performance.now();
           const errorMsg = dbError instanceof Error ? dbError.message : 'DB save error';
+          await logStageEnd(saveStageStart, { status: 'failed', error: errorMsg, pipelineRunId });
+          stages.push({
+            ...saveStageStart.entry,
+            status: 'failed',
+            endTime: saveEnd,
+            durationMs: Math.round(saveEnd - saveStageStart.entry.startTime),
+            error: errorMsg,
+          });
+          failed++;
           details.push({ toolId: tool.id, toolName: tool.name, status: 'failed', error: errorMsg });
           console.error(`  ❌ [Analysis] Failed to save analysis for ${tool.name}: ${errorMsg}`);
         }
       } else {
+        const analysisEnd = performance.now();
+        const errorMsg = result.error || 'Unknown error';
+        await logStageEnd(analysisStageStart, { status: 'failed', error: errorMsg, pipelineRunId });
+        stages.push({
+          ...analysisStageStart.entry,
+          status: 'failed',
+          endTime: analysisEnd,
+          durationMs: Math.round(analysisEnd - analysisStageStart.entry.startTime),
+          error: errorMsg,
+        });
         failed++;
-        details.push({ toolId: tool.id, toolName: tool.name, status: 'failed', error: result.error || 'Unknown error' });
-        console.error(`  ❌ [Analysis] Failed: ${tool.name} — ${result.error}`);
+        details.push({ toolId: tool.id, toolName: tool.name, status: 'failed', error: errorMsg });
+        console.error(`  ❌ [Analysis] Failed: ${tool.name} — ${errorMsg}`);
       }
 
       await sleep(500);
@@ -196,15 +274,28 @@ export async function runAnalysisPipeline(options: {
     status = 'partial';
   }
 
-  const summary: AnalysisSummary = { status, checked: total, analyzed, skipped, failed, totalDuration, details };
+  const summary: AnalysisSummary = { status, checked: total, analyzed, skipped, failed, totalDuration, details, stages };
 
   console.log(`\n📊 [Analysis] Pipeline complete: ${analyzed} analyzed, ${failed} failed, ${skipped} skipped (${totalDuration}ms)`);
   console.log(`📊 [Analysis] Summary: ${JSON.stringify(summary, null, 2)}`);
 
+  // Update pipeline run with completion status
+  try {
+    if (status === 'failed') {
+      await failPipelineRun(pipelineRunId, 'Analysis pipeline failed', { status, checked: total, analyzed, skipped, failed, totalDuration } as unknown as Record<string, unknown>);
+    } else {
+      await completePipelineRun(pipelineRunId, { status, checked: total, analyzed, skipped, failed, totalDuration } as unknown as Record<string, unknown>);
+    }
+  } catch (err) {
+    console.warn(`  ⚠️  [Analysis] Failed to update pipeline run: ${err}`);
+    // Non-fatal
+  }
+
   try {
     await logInfo('Analysis pipeline completed', {
       summary: { status, checked: total, analyzed, skipped, failed, totalDuration },
-    });
+      pipelineRunId,
+    }, pipelineRunId);
   } catch {
     // non-critical
   }

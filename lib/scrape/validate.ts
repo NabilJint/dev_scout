@@ -1,8 +1,9 @@
 // lib/scrape/validate.ts
 // Tool validation and raw_text cleanup per AGENTS.md Section 13 rules.
 
+import crypto from 'crypto';
 import * as cheerio from 'cheerio';
-import type { ScrapedTool } from './types';
+import type { ContentScore, ScoreOptions, ScrapedTool } from './types';
 
 /**
  * Clean raw HTML text by removing scripts, styles, nav elements, banners,
@@ -238,4 +239,183 @@ export function validateToolContent(
   }
 
   return { valid: true };
+}
+
+// ---------------------------------------------------------------------------
+// Content quality scoring
+// ---------------------------------------------------------------------------
+
+/**
+ * Default threshold for content quality score.
+ * Can be overridden via the CONTENT_SCORE_THRESHOLD env variable.
+ */
+export const DEFAULT_SCORE_THRESHOLD = parseInt(
+  process.env.CONTENT_SCORE_THRESHOLD || '150',
+  10
+);
+
+/**
+ * Patterns that indicate an SPA shell (empty/dynamic content placeholder).
+ */
+const SPA_SHELL_PATTERNS = [
+  /Loading\.\.\./i,
+  /Please wait/i,
+  /Powered by /i,
+  /JavaScript required/i,
+  /Enable JavaScript/i,
+  /\[object Object\]/i,
+  /undefined/i,
+  /React\.createElement/i,
+  /class=["'][a-zA-Z]/i,  // CSS class name dumps (not normal text)
+  /<div><\/div>/i,
+  /Cannot GET \//i,
+  /404 Not Found/i,
+];
+
+/**
+ * Patterns that indicate a captcha / blocked / security-challenge page.
+ */
+const CAPTCHA_PATTERNS = [
+  /captcha/i,
+  /cloudflare/i,
+  /check(ing)? (your )?browser/i,
+  /DDOS protection/i,
+  /security check/i,
+  /challenge-platform/i,
+  /cf-turnstile/i,
+  /cf-browser-verification/i,
+  /Access denied/i,
+  /403 Forbidden/i,
+  /Just a moment/i,
+];
+
+/**
+ * Score the quality of extracted raw text content.
+ *
+ * Returns a detailed ContentScore object with component breakdown.
+ * Use `score.acceptable` to check if content passes the threshold.
+ *
+ * @param text - The raw text content to score (cleaned or uncleaned).
+ * @param options - Optional scoring options (fromMainElement, threshold).
+ * @returns ContentScore with total and component scores.
+ */
+export function scoreContentQuality(
+  text: string | null | undefined,
+  options: ScoreOptions = {}
+): ContentScore {
+  const threshold = options.threshold ?? DEFAULT_SCORE_THRESHOLD;
+  const zeroScore: ContentScore = {
+    total: 0,
+    contentLength: 0,
+    titlePresent: 0,
+    mainElement: 0,
+    markdownDensity: 0,
+    spaShellPenalty: 0,
+    captchaPenalty: 0,
+    acceptable: false,
+  };
+
+  if (!text || text.trim().length === 0) {
+    return zeroScore;
+  }
+
+  const trimmed = text.trim();
+
+  // ---- Content Length ----
+  // Up to 100 points, with diminishing returns after 1000 chars
+  const contentLength = Math.min(Math.floor(trimmed.length / 10), 100);
+
+  // ---- Title Present ----
+  // Detect if the text includes what looks like a page title
+  // (typically the first line looks like a title, or contains <title> remnants)
+  const firstLine = trimmed.split('\n')[0]?.trim() || '';
+  const hasTitleSignal =
+    firstLine.length > 3 && firstLine.length < 200 && !firstLine.startsWith('//');
+  const titlePresent = hasTitleSignal ? 20 : 0;
+
+  // ---- Main Element ----
+  // If the extraction source indicates this came from <main> or <article>
+  const mainElement = options.fromMainElement ? 30 : 0;
+
+  // ---- Markdown Density ----
+  // Count structural elements typical of technical documentation
+  const lines = trimmed.split('\n');
+  let codeBlocks = 0;
+  let headers = 0;
+  let listItems = 0;
+
+  for (const line of lines) {
+    const l = line.trim();
+    if (l.startsWith('```')) codeBlocks++;
+    else if (l.startsWith('#')) headers++;
+    else if (l.startsWith('- ') || l.startsWith('* ') || /^\d+\.\s/.test(l)) listItems++;
+  }
+
+  const markdownDensity = Math.min((codeBlocks + headers + listItems) * 5, 50);
+
+  // ---- SPA Shell Penalty ----
+  let spaShellPenalty = 0;
+  for (const pattern of SPA_SHELL_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      spaShellPenalty -= 40; // -40 per matched pattern, up to -200
+    }
+  }
+  spaShellPenalty = Math.max(spaShellPenalty, -200);
+
+  // ---- Captcha Penalty ----
+  let captchaPenalty = 0;
+  for (const pattern of CAPTCHA_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      captchaPenalty -= 75; // -75 per matched pattern, up to -300
+    }
+  }
+  captchaPenalty = Math.max(captchaPenalty, -300);
+
+  // ---- Total ----
+  const total = Math.max(
+    0,
+    contentLength + titlePresent + mainElement + markdownDensity + spaShellPenalty + captchaPenalty
+  );
+
+  return {
+    total,
+    contentLength,
+    titlePresent,
+    mainElement,
+    markdownDensity,
+    spaShellPenalty,
+    captchaPenalty,
+    acceptable: total >= threshold,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Content hash computation for deduplication
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a SHA-256 content hash from raw text for content-based deduplication.
+ *
+ * Returns null if the input is null, undefined, or empty/whitespace-only.
+ * The hash is computed on trimmed, whitespace-normalized text so that minor
+ * formatting differences (e.g. extra newlines, varied spacing) don't change
+ * the hash. This means two tools with identical product description text but
+ * different HTML formatting will produce the same hash and be detected as
+ * content duplicates.
+ *
+ * @param rawText - The raw text to hash (typically after cleanRawText()).
+ * @returns 64-character hex SHA-256 string, or null for empty input.
+ */
+export function computeContentHash(rawText: string | null | undefined): string | null {
+  if (!rawText || rawText.trim().length === 0) {
+    return null;
+  }
+
+  // Normalize whitespace before hashing — collapse all whitespace runs
+  // into single spaces so formatting-only differences don't affect the hash.
+  const normalized = rawText
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return crypto.createHash('sha256').update(normalized, 'utf-8').digest('hex');
 }

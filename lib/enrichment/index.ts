@@ -12,6 +12,9 @@ import 'server-only';
 export { resolveWebsite, resolveWebsites, normalizeWebsiteUrl, extractNameFromUrl } from './resolve-website';
 export { resolveLogo, resolveLogos, normalizeForSimpleIcons } from './logo-resolver';
 export { fetchViaJina } from './jina-fallback';
+export { extractMetadata } from './metadata-extractor';
+export { resolveWebsiteUrl } from './website-resolver';
+export { resolveGitHub } from './github-resolver';
 export type {
   ResolvedWebsite,
   EnrichmentResult,
@@ -19,11 +22,15 @@ export type {
   LogoResult,
   EnrichedContent,
   EnrichedLogoResult,
+  PageMetadata,
+  WebsiteResolution,
+  GitHubData,
 } from './types';
 
 // Direct imports for local use (re-exports don't create local bindings)
 import { resolveLogo } from './logo-resolver';
 import type { EnrichedContent, LogoResult } from './types';
+import { logStageStart, logStageEnd } from '@/lib/supabase/queries/logs';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -72,8 +79,10 @@ export async function enrichTool(params: {
     sleep(500), // Rate limit delay between requests
   ]);
 
-  // Always try to resolve the logo
+  // Always try to resolve the logo (RESOLVE_URL stage)
+  const logoStart = await logStageStart('RESOLVE_URL', { toolName: name, websiteUrl, phase: 'logo-resolution' });
   const logo = await resolveLogo(name, websiteUrl);
+  await logStageEnd(logoStart, { status: 'completed', metadata: { logoSource: logo.source, hasUrl: !!logo.url } });
 
   return {
     content: contentResult,
@@ -93,10 +102,12 @@ export async function enrichTool(params: {
 async function fetchWebsiteContent(url: string): Promise<EnrichedContent | null> {
   const { resolveWebsite } = await import('./resolve-website');
 
-  // Tier 1: Direct fetch
+  // Tier 1: Direct fetch (FETCH stage)
+  const directFetchStart = await logStageStart('FETCH', { url, method: 'direct-fetch', phase: 'enrichment' });
   try {
     const resolved = await resolveWebsite(url);
     if (resolved && resolved.quality !== 'failed') {
+      await logStageEnd(directFetchStart, { status: 'completed', metadata: { quality: resolved.quality, charCount: resolved.rawText.length } });
       return {
         websiteUrl: resolved.websiteUrl,
         title: resolved.title,
@@ -104,20 +115,27 @@ async function fetchWebsiteContent(url: string): Promise<EnrichedContent | null>
         ogImage: resolved.imageUrl || null,
         rawText: resolved.rawText,
         source: 'direct-fetch',
+        metadata: null,
       };
     }
+    await logStageEnd(directFetchStart, { status: 'failed', error: `Quality: ${resolved?.quality || 'unknown'}` });
   } catch (err) {
+    await logStageEnd(directFetchStart, { status: 'failed', error: String(err) });
     console.warn(`  ⚠️  [Enrichment] Direct fetch failed for ${url}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Tier 2: Jina Reader fallback
+  // Tier 2: Jina Reader fallback (FETCH stage)
+  const jinaFetchStart = await logStageStart('FETCH', { url, method: 'jina-fallback', phase: 'enrichment' });
   try {
     const { fetchViaJina } = await import('./jina-fallback');
     const jinaResult = await fetchViaJina(url);
     if (jinaResult) {
+      await logStageEnd(jinaFetchStart, { status: 'completed', metadata: { charCount: jinaResult.rawText.length } });
       return jinaResult;
     }
+    await logStageEnd(jinaFetchStart, { status: 'failed', error: 'Jina returned null' });
   } catch (err) {
+    await logStageEnd(jinaFetchStart, { status: 'failed', error: String(err) });
     console.warn(`  ⚠️  [Enrichment] Jina fallback failed for ${url}: ${err instanceof Error ? err.message : String(err)}`);
   }
 

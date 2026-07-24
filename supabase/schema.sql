@@ -16,12 +16,15 @@ create table if not exists public.tool_sources (
     logo_url text,
     active boolean not null default true,
     parser_strategy text,
+    provider_priority jsonb,
     created_at timestamptz not null default now()
 );
 
 -- Indexes
 create index if not exists idx_tool_sources_active on public.tool_sources (active);
 create index if not exists idx_tool_sources_listing_url on public.tool_sources (listing_url);
+create index if not exists idx_tool_sources_provider_priority
+  on public.tool_sources using gin (provider_priority);
 
 -- RLS
 alter table public.tool_sources enable row level security;
@@ -58,6 +61,7 @@ create table if not exists public.tools (
     curation_status text not null default 'auto-suggested',
     last_updated timestamptz not null,
     raw_text text,
+    content_hash text,
     scraped_at timestamptz not null default now(),
     analyzed_at timestamptz,
     created_at timestamptz not null default now(),
@@ -92,6 +96,11 @@ create index if not exists idx_tools_original_url on public.tools (original_url)
 create index if not exists idx_tools_analyzed_at on public.tools (analyzed_at);
 create index if not exists idx_tools_scraped_at on public.tools (scraped_at);
 create index if not exists idx_tools_created_at on public.tools (created_at);
+
+-- Partial unique index for content-based deduplication (non-null hashes only)
+create unique index if not exists idx_tools_content_hash
+  on public.tools (content_hash)
+  where content_hash is not null;
 
 -- RLS
 alter table public.tools enable row level security;
@@ -187,6 +196,44 @@ create policy "tool_analyses_service_role_all"
     with check (true);
 
 -- ============================================================================
+-- TABLE: research_documents
+-- ============================================================================
+create table if not exists public.research_documents (
+    id bigserial primary key,
+    tool_id uuid not null unique references public.tools(id) on delete cascade,
+    homepage_md text,
+    docs_md text,
+    pricing_md text,
+    github_readme_md text,
+    metadata jsonb,
+    content_hash text,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_research_documents_tool_id on public.research_documents (tool_id);
+create index if not exists idx_research_documents_created_at on public.research_documents (created_at desc);
+
+alter table public.research_documents enable row level security;
+
+drop policy if exists "research_documents_service_role_all" on public.research_documents;
+create policy "research_documents_service_role_all"
+    on public.research_documents
+    for all
+    to service_role
+    using (true)
+    with check (true);
+
+drop trigger if exists update_research_documents_updated_at on public.research_documents;
+create trigger update_research_documents_updated_at
+    before update on public.research_documents
+    for each row
+    execute function public.update_updated_at_column();
+
+grant all on public.research_documents to service_role;
+grant usage, select on sequence public.research_documents_id_seq to service_role;
+
+-- ============================================================================
 -- TABLE: logs
 -- ============================================================================
 create table if not exists public.logs (
@@ -194,12 +241,14 @@ create table if not exists public.logs (
     level text not null check (level in ('info', 'warn', 'error')),
     message text not null,
     metadata jsonb,
+    pipeline_run_id uuid,
     created_at timestamptz not null default now()
 );
 
 -- Indexes
 create index if not exists idx_logs_created_at on public.logs (created_at desc);
 create index if not exists idx_logs_level on public.logs (level);
+create index if not exists idx_logs_pipeline_run_id on public.logs (pipeline_run_id);
 
 -- RLS
 alter table public.logs enable row level security;
@@ -276,6 +325,46 @@ create policy "oxylabs_schedule_runs_service_role_all"
     with check (true);
 
 -- ============================================================================
+-- TABLE: pipeline_runs
+-- ============================================================================
+create table if not exists public.pipeline_runs (
+    id bigserial primary key,
+    run_id uuid not null unique,
+    trigger text not null default 'manual' check (trigger in ('manual', 'cron', 'scheduler', 'analysis')),
+    status text not null default 'started' check (status in ('started', 'discovering', 'enriching', 'analyzing', 'completed', 'failed')),
+    summary jsonb,
+    error text,
+    started_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    completed_at timestamptz
+);
+
+-- Indexes
+create index if not exists idx_pipeline_runs_run_id on public.pipeline_runs (run_id);
+create index if not exists idx_pipeline_runs_trigger on public.pipeline_runs (trigger);
+create index if not exists idx_pipeline_runs_status on public.pipeline_runs (status);
+create index if not exists idx_pipeline_runs_started_at on public.pipeline_runs (started_at desc);
+
+-- RLS
+alter table public.pipeline_runs enable row level security;
+
+-- Service role only — no anon access
+drop policy if exists "pipeline_runs_service_role_all" on public.pipeline_runs;
+create policy "pipeline_runs_service_role_all"
+    on public.pipeline_runs
+    for all
+    to service_role
+    using (true)
+    with check (true);
+
+-- Updated_at trigger
+drop trigger if exists update_pipeline_runs_updated_at on public.pipeline_runs;
+create trigger update_pipeline_runs_updated_at
+    before update on public.pipeline_runs
+    for each row
+    execute function public.update_updated_at_column();
+
+-- ============================================================================
 -- GRANTS for Data API exposure (if using Data API)
 -- ============================================================================
 -- Grant usage on schema to anon and authenticated roles
@@ -293,6 +382,8 @@ grant all on public.tool_analyses to service_role;
 grant all on public.logs to service_role;
 grant all on public.oxylabs_schedules to service_role;
 grant all on public.oxylabs_schedule_runs to service_role;
+grant all on public.pipeline_runs to service_role;
+grant usage, select on sequence public.pipeline_runs_id_seq to service_role;
 
 -- Grant usage on sequences
 grant usage, select on all sequences in schema public to anon, authenticated, service_role;

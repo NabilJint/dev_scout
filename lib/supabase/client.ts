@@ -1,3 +1,7 @@
+// Fix Node.js DNS resolution order on macOS — prefer IPv4 to avoid timeouts
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
+
 // lib/supabase/client.ts
 // Supabase client helpers for server-side (service role) and browser-side (anon key)
 // Following @supabase/ssr patterns for Next.js 15+

@@ -21,7 +21,8 @@ export interface AnalyzeToolResult {
 export async function analyzeTool(
   toolId: string,
   toolName: string,
-  rawText: string
+  rawText: string,
+  researchDoc?: string | null
 ): Promise<AnalyzeToolResult> {
   if (!rawText || rawText.trim().length === 0) {
     return { success: false, error: 'No raw text available for analysis', toolId };
@@ -39,7 +40,7 @@ export async function analyzeTool(
         model: nvidiaProvider.chat(MODEL),
         schema: AnalysisSchema,
         instructions: ANALYSIS_SYSTEM_PROMPT,
-        prompt: buildAnalysisPrompt(toolName, rawText),
+        prompt: buildAnalysisPrompt({ toolName, rawText, researchDoc }),
         temperature: 0.3,
         maxOutputTokens: 4096,
       });

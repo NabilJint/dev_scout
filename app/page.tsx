@@ -36,7 +36,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     tools = await getTools({
       analyzedOnly: true,
       limit: 50,
-      curationStatus: ['curated', 'reviewed'],
+      curationStatus: ['curated', 'reviewed', 'auto-suggested'],
     }) as unknown as ToolWithAnalysis[]
 
     console.log('🟢 [HomePage] Supabase getTools returned:', tools.length, 'tools')
