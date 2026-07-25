@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { getActiveSources, getSourceById } from '@/lib/supabase/queries/sources';
 import { runScrapePipeline } from '@/lib/scrape/pipeline';
 import { verifyAdminSecret } from '@/lib/scrape/middleware';
+import { processScheduledResults } from '@/lib/scrape/scheduler';
 
 const ScrapeRequestBody = z.object({
   sourceIds: z.array(z.string().uuid()).optional(),
@@ -74,15 +75,38 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // 4. Run pipeline
+  // 4. Run pipeline — try Oxylabs scheduler fast path first
   try {
+    // Fast path: check if Oxylabs already scraped results
+    console.log('[Scrape] Trying Oxylabs scheduler fast path...');
+    const schedulerSummary = await processScheduledResults();
+
+    // If Oxylabs had results and inserted tools, return immediately
+    if (schedulerSummary.status !== 'failed' && schedulerSummary.pipelineSummary) {
+      console.log(`[Scrape] Fast path: ${schedulerSummary.pipelineSummary.toolsInserted} tools from Oxylabs`);
+      return NextResponse.json({
+        success: true,
+        summary: schedulerSummary.pipelineSummary,
+        source: 'oxylabs-scheduler',
+      });
+    }
+
+    // Fallback: Oxylabs had no results, scrape live
+    console.log('[Scrape] No Oxylabs results, falling back to live scraping...');
     const summary = await runScrapePipeline(sources, { perSourceLimit });
-    return NextResponse.json({ success: true, summary });
+    return NextResponse.json({ success: true, summary, source: 'live-scrape' });
   } catch (err) {
-    console.error('[Scrape] Pipeline error:', err);
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 }
-    );
+    console.error('[Scrape] Live scrape fallback due to error:', err);
+    // Final fallback: live scraping
+    try {
+      const summary = await runScrapePipeline(sources, { perSourceLimit });
+      return NextResponse.json({ success: true, summary, source: 'live-scrape' });
+    } catch (fallbackErr) {
+      console.error('[Scrape] Live scrape also failed:', fallbackErr);
+      return NextResponse.json(
+        { success: false, error: fallbackErr instanceof Error ? fallbackErr.message : 'Unknown error' },
+        { status: 500 }
+      );
+    }
   }
 }
